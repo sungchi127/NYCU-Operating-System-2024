@@ -1,0 +1,149 @@
+From 02a181347dc4ab38733bff9f9d003c5af4c1d26a Mon Sep 17 00:00:00 2001
+From: Andy <sung891220@gmail.com>
+Date: Mon, 7 Oct 2024 17:56:10 +0800
+Subject: [PATCH] Implement system call for HW1
+
+---
+ Makefile                               |  3 +-
+ arch/x86/entry/syscalls/syscall_64.tbl |  1 +
+ include/linux/syscalls.h               |  2 ++
+ include/uapi/asm-generic/unistd.h      |  6 ++--
+ revstr/Makefile                        |  1 +
+ revstr/sys_revstr.c                    | 48 ++++++++++++++++++++++++++
+ 6 files changed, 58 insertions(+), 3 deletions(-)
+ create mode 100644 revstr/Makefile
+ create mode 100644 revstr/sys_revstr.c
+
+diff --git a/Makefile b/Makefile
+index 997b67722..ecbd517c5 100644
+--- a/Makefile
++++ b/Makefile
+@@ -2,7 +2,7 @@
+ VERSION = 6
+ PATCHLEVEL = 1
+ SUBLEVEL = 0
+-EXTRAVERSION =
++EXTRAVERSION = -os-313560005
+ NAME = Hurr durr I'ma ninja sloth
+ 
+ # *DOCUMENTATION*
+@@ -744,6 +744,7 @@ endif
+ ifeq ($(KBUILD_EXTMOD),)
+ # Objects we will link into vmlinux / subdirs we need to visit
+ core-y		:=
++core-y          += revstr/
+ drivers-y	:=
+ libs-y		:= lib/
+ endif # KBUILD_EXTMOD
+diff --git a/arch/x86/entry/syscalls/syscall_64.tbl b/arch/x86/entry/syscalls/syscall_64.tbl
+index c84d12608..a1b70c25c 100644
+--- a/arch/x86/entry/syscalls/syscall_64.tbl
++++ b/arch/x86/entry/syscalls/syscall_64.tbl
+@@ -372,6 +372,7 @@
+ 448	common	process_mrelease	sys_process_mrelease
+ 449	common	futex_waitv		sys_futex_waitv
+ 450	common	set_mempolicy_home_node	sys_set_mempolicy_home_node
++451     common  revstr                  sys_revstr
+ 
+ #
+ # Due to a historical design error, certain syscalls are numbered differently
+diff --git a/include/linux/syscalls.h b/include/linux/syscalls.h
+index a34b0f9a9..9604aaa2a 100644
+--- a/include/linux/syscalls.h
++++ b/include/linux/syscalls.h
+@@ -308,6 +308,7 @@ static inline void addr_limit_user_check(void)
+  * for architectures overriding the syscall calling convention, do not
+  * include the prototypes if CONFIG_ARCH_HAS_SYSCALL_WRAPPER is enabled.
+  */
++
+ #ifndef CONFIG_ARCH_HAS_SYSCALL_WRAPPER
+ asmlinkage long sys_io_setup(unsigned nr_reqs, aio_context_t __user *ctx);
+ asmlinkage long sys_io_destroy(aio_context_t ctx);
+@@ -1385,4 +1386,5 @@ int __sys_getsockopt(int fd, int level, int optname, char __user *optval,
+ 		int __user *optlen);
+ int __sys_setsockopt(int fd, int level, int optname, char __user *optval,
+ 		int optlen);
++asmlinkage long sys_revstr(char __user *str, size_t len);
+ #endif
+diff --git a/include/uapi/asm-generic/unistd.h b/include/uapi/asm-generic/unistd.h
+index 45fa180cc..d0ff774ae 100644
+--- a/include/uapi/asm-generic/unistd.h
++++ b/include/uapi/asm-generic/unistd.h
+@@ -886,9 +886,11 @@ __SYSCALL(__NR_futex_waitv, sys_futex_waitv)
+ #define __NR_set_mempolicy_home_node 450
+ __SYSCALL(__NR_set_mempolicy_home_node, sys_set_mempolicy_home_node)
+ 
+-#undef __NR_syscalls
+-#define __NR_syscalls 451
++#define __NR_revstr 451
++__SYSCALL(__NR_revstr, sys_revstr)
+ 
++#undef __NR_syscalls
++#define __NR_syscalls 452
+ /*
+  * 32 bit systems traditionally used different
+  * syscalls for off_t and loff_t arguments, while
+diff --git a/revstr/Makefile b/revstr/Makefile
+new file mode 100644
+index 000000000..0c84ff155
+--- /dev/null
++++ b/revstr/Makefile
+@@ -0,0 +1 @@
++obj-y   := sys_revstr.o
+diff --git a/revstr/sys_revstr.c b/revstr/sys_revstr.c
+new file mode 100644
+index 000000000..21fd949ac
+--- /dev/null
++++ b/revstr/sys_revstr.c
+@@ -0,0 +1,48 @@
++#include <linux/kernel.h>
++#include <linux/syscalls.h>
++#include <linux/uaccess.h>
++#include <linux/types.h>
++
++long ksys_revstr(char __user *msg, size_t size)
++{
++    char buf[256];
++    char rev[256];
++    long copied;
++    int i;
++    
++    if(!msg){
++        printk(KERN_ERR "Invalid user pointer\n");
++        return -EFAULT;
++    }
++    if(size > 255){
++        printk(KERN_ERR "String too long\n");
++        return -EINVAL;
++    }
++
++    copied = strncpy_from_user(buf, msg, size);
++    if (copied < 0 ){
++        printk(KERN_ERR "Failed to copy from user space\n");
++        return -EFAULT;
++    }
++
++    for(i = 0; i < size; i++) {
++        rev[size - 1 - i] = buf[i];
++    }
++
++    rev[size] = '\0';
++    printk(KERN_INFO "The origin string: %s\n", buf);
++    printk(KERN_INFO "The reversed string: %s\n", rev);
++
++    if (copy_to_user(msg, rev, size)) {
++        printk(KERN_ERR "Failed to copy to user space\n");
++        return -EFAULT;
++    }
++
++    return 0;
++}
++
++SYSCALL_DEFINE2(revstr, char __user *, msg, size_t, size)
++{
++    return ksys_revstr(msg, size);
++}
++
+-- 
+2.43.0
+
